@@ -1,0 +1,27 @@
+# Variáveis de ambiente
+.env
+
+# Cache Python
+__pycache__/
+*.py[cod]
+
+# Logs gerados pela automação
+logs/
+
+# Distribuição / build
+dist/
+build/
+*.egg-info/
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+
+# Arquivos temporários Windows
+Thumbs.db
+desktop.ini
