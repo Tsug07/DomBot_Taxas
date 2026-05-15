@@ -1,7 +1,13 @@
 """
-DomBot - Taxa Bares
-===================
-Automação RPA para emissão de relatórios de Taxa Bares no sistema Domínio Folha.
+DomBot - Taxa Motorista
+=======================
+Automação RPA para emissão de relatórios de Taxa Motorista no sistema Domínio Folha.
+
+Planilha esperada:
+  Coluna A - Codigo da empresa
+  Coluna B - Nome da empresa
+  Coluna C - Rubrica
+  Coluna D - Caminho completo do arquivo (pasta + nome)
 
 Autor: Hugo L. Almeida
 Versão: 1.0
@@ -15,12 +21,6 @@ import os
 import traceback
 import threading
 import subprocess
-import smtplib
-import ssl
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
 from datetime import datetime
 from typing import Optional
 import tkinter.messagebox as messagebox
@@ -32,6 +32,7 @@ from pywinauto import findwindows, timings
 import win32gui
 import win32con
 import win32api
+import ctypes
 
 try:
     from dotenv import load_dotenv
@@ -70,7 +71,7 @@ class AutomacaoGUI:
         ctk.set_default_color_theme("green")
 
         self.window = ctk.CTk()
-        self.window.title("DomBot - Taxa Bares v1.0")
+        self.window.title("DomBot - Taxa Motorista v1.0")
         self.window.geometry("800x480")
         self.window.minsize(700, 430)
         self.window.protocol("WM_DELETE_WINDOW", self.ao_fechar)
@@ -92,18 +93,16 @@ class AutomacaoGUI:
         self.setup_file_logging()
         self.set_window_icon()
 
-        # Variáveis da interface
         self.arquivo_excel = ctk.StringVar()
         self.linha_inicial = ctk.StringVar(value="2")
-        self.diretorio_salvamento = ctk.StringVar()
-        self.periodo_var = ctk.StringVar(value=datetime.now().strftime("%m/%Y"))
+        self.competencia_var = ctk.StringVar(value=datetime.now().strftime("%m/%Y"))
         self.status_var = ctk.StringVar(value="Aguardando início...")
 
         self.df_carregado = None
         self.linhas_processadas = 0
         self.linhas_com_erro = 0
 
-        self.logger = logging.getLogger('AutomacaoTaxaBares')
+        self.logger = logging.getLogger('AutomacaoTaxaMotorista')
         self.logger.setLevel(logging.INFO)
         self.logger.handlers = []
 
@@ -116,7 +115,7 @@ class AutomacaoGUI:
     def setup_file_logging(self):
         data_atual = datetime.now().strftime("%Y-%m-%d")
 
-        self.success_logger = logging.getLogger('SuccessLogTaxaBares')
+        self.success_logger = logging.getLogger('SuccessLogTaxaMotorista')
         self.success_logger.setLevel(logging.INFO)
         if not self.success_logger.handlers:
             h = logging.FileHandler(
@@ -125,7 +124,7 @@ class AutomacaoGUI:
             h.setFormatter(logging.Formatter('%(asctime)s - %(message)s', '%Y-%m-%d %H:%M:%S'))
             self.success_logger.addHandler(h)
 
-        self.error_logger = logging.getLogger('ErrorLogTaxaBares')
+        self.error_logger = logging.getLogger('ErrorLogTaxaMotorista')
         self.error_logger.setLevel(logging.ERROR)
         if not self.error_logger.handlers:
             h = logging.FileHandler(
@@ -185,7 +184,7 @@ class AutomacaoGUI:
 
         ctk.CTkLabel(
             header_frame,
-            text="DomBot - Taxa Bares",
+            text="DomBot - Taxa Motorista",
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color=self.CORES['texto'],
         ).grid(row=0, column=1, sticky="w", padx=5)
@@ -259,27 +258,19 @@ class AutomacaoGUI:
         )
         self.btn_parar.grid(row=0, column=7, padx=(3, 0))
 
-        # --- Linha 2: Pasta de destino ---
+        # --- Linha 2: Competência ---
         row2 = ctk.CTkFrame(config_frame, fg_color="transparent")
         row2.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
-        row2.grid_columnconfigure(2, weight=1)
 
-        ctk.CTkLabel(row2, text="📂", font=ctk.CTkFont(size=14)).grid(row=0, column=0, padx=(0, 5))
-        ctk.CTkLabel(row2, text="Pasta de destino:", font=ctk.CTkFont(size=11), text_color="#BDC3C7").grid(
+        ctk.CTkLabel(row2, text="📅", font=ctk.CTkFont(size=14)).grid(row=0, column=0, padx=(0, 5))
+        ctk.CTkLabel(row2, text="Competência:", font=ctk.CTkFont(size=11), text_color="#BDC3C7").grid(
             row=0, column=1, padx=(0, 5)
         )
-        self.entry_diretorio = ctk.CTkEntry(
-            row2, textvariable=self.diretorio_salvamento,
-            placeholder_text="Pasta onde os arquivos serão salvos...",
-            height=32, font=ctk.CTkFont(size=11),
-        )
-        self.entry_diretorio.grid(row=0, column=2, sticky="ew", padx=(0, 8))
-
-        ctk.CTkButton(
-            row2, text="Selecionar", command=self.selecionar_diretorio,
-            width=80, height=32, font=ctk.CTkFont(size=11),
-            fg_color=self.CORES['info'], hover_color="#2980B9",
-        ).grid(row=0, column=5)
+        ctk.CTkEntry(
+            row2, textvariable=self.competencia_var,
+            width=120, height=32, font=ctk.CTkFont(size=11), justify="center",
+            placeholder_text="MM/AAAA",
+        ).grid(row=0, column=2)
 
     def criar_painel_estatisticas(self, parent):
         stats_frame = ctk.CTkFrame(parent, fg_color=self.CORES['fundo_card'], corner_radius=8)
@@ -320,11 +311,9 @@ class AutomacaoGUI:
 
         tab_logs = self.tabview.add("📋 Logs")
         tab_preview = self.tabview.add("📊 Preview")
-        tab_email = self.tabview.add("📧 Email")
 
         self._criar_aba_logs(tab_logs)
         self._criar_aba_preview(tab_preview)
-        self._criar_aba_email(tab_email)
 
     def _criar_aba_logs(self, parent):
         parent.grid_columnconfigure(0, weight=1)
@@ -387,57 +376,6 @@ class AutomacaoGUI:
         )
         self.preview_text.grid(row=1, column=0, sticky="nsew", padx=3, pady=(0, 3))
 
-    def _criar_aba_email(self, parent):
-        parent.grid_columnconfigure(0, weight=1)
-
-        frame = ctk.CTkFrame(parent, fg_color="transparent")
-        frame.grid(row=0, column=0, sticky="nsew", padx=12, pady=10)
-        frame.grid_columnconfigure(1, weight=1)
-
-        # Período
-        ctk.CTkLabel(frame, text="Período:", font=ctk.CTkFont(size=11), text_color="#BDC3C7").grid(
-            row=0, column=0, sticky="w", pady=6, padx=(0, 10)
-        )
-        ctk.CTkEntry(
-            frame, textvariable=self.periodo_var,
-            width=120, height=32, font=ctk.CTkFont(size=11), justify="center",
-            placeholder_text="MM/AAAA",
-        ).grid(row=0, column=1, sticky="w")
-
-        # Destinatário
-        ctk.CTkLabel(frame, text="Destinatário:", font=ctk.CTkFont(size=11), text_color="#BDC3C7").grid(
-            row=1, column=0, sticky="w", pady=6, padx=(0, 10)
-        )
-        self.email_dest_var = ctk.StringVar(value=os.getenv("EMAIL_DESTINATARIO", "sindembar@uol.com.br"))
-        ctk.CTkEntry(
-            frame, textvariable=self.email_dest_var,
-            height=32, font=ctk.CTkFont(size=11),
-        ).grid(row=1, column=1, sticky="ew")
-
-        # Pasta de anexos (usa a pasta de destino já configurada)
-        ctk.CTkLabel(frame, text="Anexos em:", font=ctk.CTkFont(size=11), text_color="#BDC3C7").grid(
-            row=2, column=0, sticky="w", pady=6, padx=(0, 10)
-        )
-        self.email_pasta_label = ctk.CTkLabel(
-            frame, textvariable=self.diretorio_salvamento,
-            font=ctk.CTkFont(size=11), text_color="#95A5A6", anchor="w",
-        )
-        self.email_pasta_label.grid(row=2, column=1, sticky="ew")
-
-        # Botão enviar
-        ctk.CTkButton(
-            frame, text="📧 Enviar e-mail", command=self._enviar_email_thread,
-            height=36, font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=self.CORES['info'], hover_color="#2980B9",
-        ).grid(row=3, column=0, columnspan=2, pady=(16, 4), sticky="ew")
-
-        # Status do envio
-        self.email_status_var = ctk.StringVar(value="")
-        ctk.CTkLabel(
-            frame, textvariable=self.email_status_var,
-            font=ctk.CTkFont(size=11), text_color="#95A5A6",
-        ).grid(row=4, column=0, columnspan=2, sticky="w")
-
     # ── Ações da interface ────────────────────────────────────────────────────
 
     def selecionar_arquivo(self):
@@ -454,51 +392,31 @@ class AutomacaoGUI:
         if not self.arquivo_excel.get():
             return
         try:
-            df = pd.read_excel(self.arquivo_excel.get())
+            df = pd.read_excel(self.arquivo_excel.get(), header=None,
+                               names=['Codigo', 'Nome', 'Rubrica', 'Caminho'])
+            # Pular linha de cabeçalho se existir
+            if str(df.iloc[0]['Codigo']).lower() in ('codigo', 'código', 'code'):
+                df = df.iloc[1:].reset_index(drop=True)
             total = len(df)
 
             self.preview_info_label.configure(
-                text=f"📄 {os.path.basename(self.arquivo_excel.get())} | {total} linhas | Colunas: {', '.join(str(c) for c in df.columns[:6])}"
+                text=f"📄 {os.path.basename(self.arquivo_excel.get())} | {total} linhas | Colunas: Codigo, Nome, Rubrica, Caminho"
             )
 
             self.preview_text.delete("1.0", "end")
-            header = " | ".join([f"{str(col)[:15]:^15}" for col in df.columns[:6]])
+            cols = ['Codigo', 'Nome', 'Rubrica', 'Caminho']
+            header = " | ".join([f"{c:^18}" for c in cols])
             sep = "─" * len(header)
             self.preview_text.insert("end", f"{sep}\n{header}\n{sep}\n")
             for _, row in df.head(50).iterrows():
-                self.preview_text.insert("end", " | ".join([f"{str(v)[:15]:^15}" for v in row.values[:6]]) + "\n")
+                self.preview_text.insert("end", " | ".join([f"{str(row[c])[:18]:^18}" for c in cols]) + "\n")
             if total > 50:
                 self.preview_text.insert("end", f"\n... e mais {total - 50} linhas\n")
 
-            colunas_faltando = [c for c in ['Codigo', 'Nome'] if c not in df.columns]
-            if colunas_faltando:
-                self.adicionar_log(f"Colunas obrigatórias não encontradas: {', '.join(colunas_faltando)}", logging.WARNING, "aviso")
-            else:
-                self.adicionar_log(f"Preview carregado: {total} linhas. Colunas OK.", logging.INFO, "sucesso")
-
+            self.adicionar_log(f"Preview carregado: {total} linhas.", logging.INFO, "sucesso")
             self.df_carregado = df
         except Exception as e:
             self.adicionar_log(f"Erro ao carregar preview: {e}", logging.ERROR, "erro")
-
-    def selecionar_diretorio(self):
-        script = (
-            "Add-Type -AssemblyName System.Windows.Forms; "
-            "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
-            "$f.Description = 'Selecione a pasta de destino'; "
-            "$f.ShowNewFolderButton = $true; "
-            "if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath } else { '' }"
-        )
-        try:
-            result = subprocess.run(
-                ["powershell", "-Command", script],
-                capture_output=True, text=True, timeout=120,
-            )
-            diretorio = result.stdout.strip()
-            if diretorio:
-                self.diretorio_salvamento.set(diretorio)
-                self.adicionar_log(f"Pasta de destino: {diretorio}", logging.INFO, "info")
-        except Exception as e:
-            self.adicionar_log(f"Erro ao selecionar pasta: {e}", logging.ERROR, "erro")
 
     def limpar_logs(self):
         self.log_text.delete("1.0", "end")
@@ -572,18 +490,14 @@ class AutomacaoGUI:
         except ValueError:
             return False, "Linha inicial deve ser um número válido."
         try:
-            df = pd.read_excel(self.arquivo_excel.get())
+            df = pd.read_excel(self.arquivo_excel.get(), header=None,
+                               names=['Codigo', 'Nome', 'Rubrica', 'Caminho'])
             if len(df) == 0:
                 return False, "Arquivo Excel está vazio."
-            if linha_inicial > len(df) + 1:
-                return False, f"Linha inicial ({linha_inicial}) maior que o total de linhas ({len(df) + 1})."
-            colunas_faltando = [c for c in ['Codigo', 'Nome', 'Rubrica'] if c not in df.columns]
-            if colunas_faltando:
-                return False, f"Colunas obrigatórias não encontradas: {', '.join(colunas_faltando)}"
         except Exception as e:
             return False, f"Erro ao ler arquivo Excel: {e}"
-        if not self.diretorio_salvamento.get().strip():
-            return False, "Selecione a pasta de destino antes de continuar."
+        if not self.competencia_var.get().strip():
+            return False, "Informe a competência antes de continuar."
         return True, "OK"
 
     def iniciar_automacao_thread(self):
@@ -646,17 +560,21 @@ class AutomacaoGUI:
     # ── Loop principal de automação ───────────────────────────────────────────
 
     def iniciar_automacao(self):
-        diretorio = self.diretorio_salvamento.get().strip()
         linha_inicial = int(self.linha_inicial.get())
+        competencia = self.competencia_var.get().strip()
 
         try:
             self.adicionar_log("Iniciando automação...", logging.INFO, "processando")
             self.status_var.set("Em execução...")
             self.executando = True
 
-            os.makedirs(diretorio, exist_ok=True)
+            df = pd.read_excel(self.arquivo_excel.get(), header=None,
+                               names=['Codigo', 'Nome', 'Rubrica', 'Caminho'])
 
-            df = pd.read_excel(self.arquivo_excel.get())
+            # Pular linha de cabeçalho se existir
+            if str(df.iloc[0]['Codigo']).lower() in ('codigo', 'código', 'code'):
+                df = df.iloc[1:].reset_index(drop=True)
+
             inicio_idx = linha_inicial - 2
             df_processar = df.iloc[inicio_idx:]
             total = len(df_processar)
@@ -681,9 +599,16 @@ class AutomacaoGUI:
                     break
 
                 linha_excel = original_index + 2
-                codigo = str(row['Codigo'])
-                nome = str(row.get('Nome', 'N/A'))
-                rubrica = str(row['Rubrica'])
+                codigo = str(row['Codigo']).strip()
+                nome = str(row.get('Nome', 'N/A')).strip()
+                rubrica = str(row['Rubrica']).strip()
+                caminho_raw = str(row['Caminho']).strip()
+                # Sanitiza apenas o nome do arquivo (preserva o caminho de pasta)
+                pasta = os.path.dirname(caminho_raw)
+                nome_arq = os.path.basename(caminho_raw)
+                for ch in r'*?"<>|/':
+                    nome_arq = nome_arq.replace(ch, '-')
+                caminho = os.path.join(pasta, nome_arq) if pasta else nome_arq
 
                 self.empresa_label.configure(text=codigo[:20])
                 self.status_var.set(f"Processando: {idx + 1}/{total}")
@@ -693,8 +618,9 @@ class AutomacaoGUI:
                 )
 
                 try:
-                    competencia = self.periodo_var.get().strip().replace("/", "-")
-                    success = automacao.processar_taxa_bares(rubrica, codigo, nome, diretorio, linha_excel, competencia)
+                    success = automacao.processar_taxa_motorista(
+                        rubrica, codigo, nome, caminho, competencia, linha_excel
+                    )
 
                     if success:
                         self.linhas_processadas += 1
@@ -722,37 +648,6 @@ class AutomacaoGUI:
                     logging.INFO, "sucesso"
                 )
 
-                # Envio automático de e-mail com os PDFs gerados
-                if self.linhas_processadas > 0:
-                    self.adicionar_log("Iniciando envio automático de e-mail...", logging.INFO, "info")
-                    periodo = self.periodo_var.get().strip()
-                    destinatario = self.email_dest_var.get().strip()
-                    anexos = [
-                        os.path.join(diretorio, f)
-                        for f in os.listdir(diretorio)
-                        if f.lower().endswith(".pdf")
-                    ]
-                    if anexos and destinatario:
-                        self._enviar_email(periodo, destinatario, anexos)
-                    else:
-                        self.adicionar_log("Nenhum PDF encontrado para enviar ou destinatário não configurado.", logging.WARNING, "aviso")
-
-                if _requests_available:
-                    try:
-                        webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
-                        if webhook_url:
-                            mensagem = (
-                                f"📋 **Taxa Bares Emitida**\n\n"
-                                f"📊 **Processadas:** {self.linhas_processadas}\n"
-                                f"📂 **Destino:** `{diretorio}`\n\n"
-                                f"✅ Emissão finalizada!\n\n"
-                                f"<@&1299044385899548752>"
-                            )
-                            requests.post(webhook_url, json={"content": mensagem}, timeout=10)
-                            self.adicionar_log("Notificação enviada ao Discord", logging.INFO, "sucesso")
-                    except Exception as e:
-                        self.adicionar_log(f"Erro ao enviar notificação: {e}", logging.WARNING, "aviso")
-
         except Exception as e:
             erro_msg = f"Erro crítico: {e}"
             self.error_logger.error(erro_msg)
@@ -766,132 +661,6 @@ class AutomacaoGUI:
             self.btn_iniciar.configure(state="normal")
             self.btn_pausar.configure(state="disabled", text="⏸ Pausar")
             self.btn_parar.configure(state="disabled")
-
-    def _enviar_email_thread(self):
-        periodo = self.periodo_var.get().strip()
-        destinatario = self.email_dest_var.get().strip()
-        pasta = self.diretorio_salvamento.get().strip()
-
-        if not periodo:
-            messagebox.showerror("Erro", "Informe o período antes de enviar.")
-            return
-        if not destinatario:
-            messagebox.showerror("Erro", "Informe o destinatário.")
-            return
-        if not pasta or not os.path.isdir(pasta):
-            messagebox.showerror("Erro", "A pasta de destino não foi configurada ou não existe.")
-            return
-
-        anexos = [
-            os.path.join(pasta, f)
-            for f in os.listdir(pasta)
-            if f.lower().endswith(".pdf")
-        ]
-        if not anexos:
-            messagebox.showerror("Erro", f"Nenhum PDF encontrado em:\n{pasta}")
-            return
-
-        self.email_status_var.set("Enviando...")
-        threading.Thread(
-            target=self._enviar_email,
-            args=(periodo, destinatario, anexos),
-            daemon=True,
-        ).start()
-
-    def _calcular_vencimento(self, periodo: str) -> str:
-        try:
-            # periodo no formato MM/AAAA ou MM-AAAA
-            periodo_limpo = periodo.replace("-", "/")
-            competencia = datetime.strptime(periodo_limpo, "%m/%Y")
-            # Dia 05 do mês seguinte à competência
-            if competencia.month == 12:
-                vencimento = competencia.replace(year=competencia.year + 1, month=1, day=5)
-            else:
-                vencimento = competencia.replace(month=competencia.month + 1, day=5)
-            return vencimento.strftime("%d/%m/%Y")
-        except Exception:
-            return ""
-
-    def _enviar_email(self, periodo: str, destinatario: str, anexos: list):
-        try:
-            gmail_user = os.getenv("GMAIL_USER", "")
-            gmail_password = os.getenv("GMAIL_APP_PASSWORD", "")
-
-            if not gmail_user or not gmail_password:
-                self.window.after(0, lambda: self.email_status_var.set(
-                    "❌ Credenciais não configuradas no .env"
-                ))
-                self.window.after(0, lambda: messagebox.showerror(
-                    "Erro de configuração",
-                    "Preencha GMAIL_USER e GMAIL_APP_PASSWORD no arquivo .env"
-                ))
-                return
-
-            assunto = f"Taxa Assistencial {periodo}"
-
-            vencimento = self._calcular_vencimento(periodo)
-            vencimento_linha = (
-                f"  <p>O <strong>vencimento</strong> para pagamento é <strong>{vencimento}</strong>.</p>\n\n"
-                if vencimento else ""
-            )
-
-            corpo = f"""\
-<html>
-<body style="font-family: Arial, sans-serif; font-size: 14px; color: #333;">
-  <p>Prezados,</p>
-
-  <p>
-    Encaminhamos em anexo as relações referentes à <strong>Taxa Assistencial</strong>
-    do período <strong>{periodo}</strong>, conforme apuração realizada pelo sistema Domínio Folha.
-  </p>
-
-{vencimento_linha}  <p>Pedimos que nos enviem a taxa conforme relações em anexo.</p>
-
-  <p>Ficamos à disposição para quaisquer esclarecimentos.</p>
-
-  <br>
-  <p>Atenciosamente,<br>
-  <strong>Canella e Santos Contabilidade</strong></p>
-</body>
-</html>"""
-
-            msg = MIMEMultipart()
-            msg["From"] = gmail_user
-            msg["To"] = destinatario
-            msg["Subject"] = assunto
-            msg.attach(MIMEText(corpo, "html", "utf-8"))
-
-            for caminho in anexos:
-                nome = os.path.basename(caminho)
-                with open(caminho, "rb") as f:
-                    parte = MIMEBase("application", "octet-stream")
-                    parte.set_payload(f.read())
-                encoders.encode_base64(parte)
-                parte.add_header("Content-Disposition", f'attachment; filename="{nome}"')
-                msg.attach(parte)
-
-            context = ssl.create_default_context()
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-                server.login(gmail_user, gmail_password.replace(" ", ""))
-                server.sendmail(gmail_user, destinatario, msg.as_string())
-
-            total = len(anexos)
-            self.window.after(0, lambda: self.email_status_var.set(
-                f"✅ E-mail enviado com {total} anexo(s) para {destinatario}"
-            ))
-            self.adicionar_log(
-                f"E-mail enviado — {total} PDF(s) para {destinatario} | Período: {periodo}",
-                logging.INFO, "sucesso"
-            )
-
-        except smtplib.SMTPAuthenticationError:
-            msg_err = "❌ Falha de autenticação. Verifique GMAIL_USER e GMAIL_APP_PASSWORD no .env"
-            self.window.after(0, lambda: self.email_status_var.set(msg_err))
-            self.window.after(0, lambda: messagebox.showerror("Erro de autenticação", msg_err))
-        except Exception as e:
-            msg_err = f"❌ Erro ao enviar: {e}"
-            self.window.after(0, lambda: self.email_status_var.set(msg_err))
-            self.adicionar_log(msg_err, logging.ERROR, "erro")
 
     def executar(self):
         self.window.mainloop()
@@ -1199,7 +968,29 @@ class DominioAutomation:
         except Exception as e:
             self.log(f"⚠️ Erro durante limpeza: {e}")
 
-    def salvar_pdf(self, nome_arquivo: str, diretorio: str) -> bool:
+    def _set_clipboard(self, text: str):
+        """Coloca texto no clipboard do Windows via win32clipboard."""
+        import win32clipboard
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+        finally:
+            win32clipboard.CloseClipboard()
+
+    def _force_focus(self, hwnd: int):
+        """Força foco para uma janela contornando a restrição do Windows 10."""
+        try:
+            ctypes.windll.user32.keybd_event(0x12, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(0x12, 0, 2, 0)
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            win32gui.SetForegroundWindow(hwnd)
+            time.sleep(0.3)
+        except Exception:
+            pass
+
+    def salvar_pdf(self, caminho_completo: str) -> bool:
+        """Salva o PDF usando o caminho completo (coluna D) via WM_SETTEXT no campo Edit."""
         try:
             if self.should_stop():
                 return False
@@ -1207,27 +998,35 @@ class DominioAutomation:
             self.log("💾 Configurando salvamento do PDF")
 
             save_hwnd = self._find_save_window_hwnd()
-            if save_hwnd:
-                save_app = Application(backend="uia").connect(handle=save_hwnd)
-                save_window = save_app.window(handle=save_hwnd)
-            else:
+            if not save_hwnd:
                 self.log("🔍 Procurando janela de salvamento alternativa...")
                 save_window = self.main_window.child_window(title="Salvar em PDF", class_name="#32770")
                 if not save_window.exists():
                     self.log("❌ Janela de salvamento não encontrada")
                     return False
+                save_hwnd = save_window.handle
 
             if self.should_stop():
                 return False
             self.check_pause()
 
-            caminho_completo = os.path.join(diretorio, nome_arquivo) if diretorio else nome_arquivo
             self.log(f"📝 Salvando em: {caminho_completo}")
-
             time.sleep(0.5)
-            win32gui.SetForegroundWindow(save_hwnd)
-            time.sleep(0.2)
-            send_keys(caminho_completo, with_spaces=True)
+
+            # Cola o caminho via clipboard para garantir que espaços, acentos e
+            # caracteres especiais cheguem intactos ao campo de nome do arquivo
+            self._force_focus(save_hwnd)
+            self._set_clipboard(caminho_completo)
+
+            # Clica diretamente no campo Edit de nome para garantir foco
+            filename_edit = win32gui.FindWindowEx(save_hwnd, 0, "Edit", None)
+            if filename_edit:
+                win32gui.SetFocus(filename_edit)
+                time.sleep(0.1)
+
+            send_keys('^a')   # seleciona tudo que estiver no campo
+            time.sleep(0.1)
+            send_keys('^v')   # cola o caminho
             time.sleep(0.3)
 
             if self.should_stop():
@@ -1244,7 +1043,7 @@ class DominioAutomation:
             ):
                 self.log("⚠️ Timeout aguardando janela fechar, continuando mesmo assim")
 
-            self.log(f"✅ PDF salvo: {nome_arquivo}")
+            self.log(f"✅ PDF salvo: {os.path.basename(caminho_completo)}")
             self.cleanup_windows()
             return True
 
@@ -1342,8 +1141,12 @@ class DominioAutomation:
         except Exception:
             pass
 
-    def processar_taxa_bares(self, rubrica: str, codigo: str, nome: str, diretorio: str, linha_excel: int, competencia: str = "") -> bool:
-        """Abre Relatórios > F > M no Domínio e salva o PDF resultante."""
+    def processar_taxa_motorista(self, rubrica: str, codigo: str, nome: str,
+                                  caminho: str, competencia: str, linha_excel: int) -> bool:
+        """
+        Abre Relatórios > Gerenciador > pasta Diversos (d x6 + Enter) > 'c' x9 para
+        selecionar a guia Taxa Motorista, preenche competência e rubrica, executa e salva.
+        """
         try:
             if not self._is_connection_alive():
                 handle = self.find_dominio_window()
@@ -1376,164 +1179,112 @@ class DominioAutomation:
                 return False
             self.check_pause()
 
-            # Abrir menu Relatórios (ALT+R) → F → M
-            self.log("📊 Acessando Relatórios > F > M")
+            # Abrir Gerenciador de Relatórios via ALT+R → i → i → ENTER
+            self.log("📊 Acessando Gerenciador de Relatórios")
             self.main_window.set_focus()
             send_keys('%r')
             if not self.smart_sleep(0.5):
                 return False
-            send_keys('f')
+            send_keys('i')
             if not self.smart_sleep(0.5):
                 return False
-            send_keys('m')
+            send_keys('i')
+            if not self.smart_sleep(0.5):
+                return False
+            send_keys('{ENTER}')
             if not self.smart_sleep(1):
                 return False
 
-            # Aguardar a janela do relatório (FNWND3190) e clicar em Rubricas via Alt+U
-            self.log("🔘 Aguardando janela do relatório para clicar em Rubricas...")
-
-            def _find_fnwnd():
-                hwnds = []
-                def cb(hwnd, _):
-                    if win32gui.IsWindowVisible(hwnd):
-                        try:
-                            if win32gui.GetClassName(hwnd) == "FNWND3190":
-                                btn = win32gui.FindWindowEx(hwnd, 0, "Button", None)
-                                if btn:
-                                    hwnds.append(hwnd)
-                                    return False
-                        except Exception:
-                            pass
-                    return True
-                win32gui.EnumWindows(cb, None)
-                return hwnds[0] if hwnds else None
-
-            rel_hwnd = None
-            for _ in range(20):
+            # Aguardar o Gerenciador de Relatórios
+            relatorio_window = None
+            for attempt in range(15):
                 if self.should_stop():
                     return False
                 self.check_pause()
-                rel_hwnd = _find_fnwnd()
-                if rel_hwnd:
-                    break
-                if not self.smart_sleep(0.5):
-                    return False
-
-            if not rel_hwnd:
-                self.log("❌ Janela do relatório não encontrada")
-                return False
-
-            # Focar a janela e usar o atalho Alt+U do botão Rubricas
-            win32gui.SetForegroundWindow(rel_hwnd)
-            if not self.smart_sleep(0.3):
-                return False
-            self.log("🔘 Clicando no botão Rubricas (Alt+U)")
-            send_keys('%u')
-            if not self.smart_sleep(1):
-                return False
-
-            # Aguardar a janela de seleção de Rubrica — busca o checkbox "Rubrica:" em todos os níveis
-            self.log("☑️ Verificando checkbox Rubrica...")
-
-            def _find_rubrica_checkbox_hwnd():
-                """Varre todas as janelas e seus filhos procurando Button com texto 'Rubrica:'."""
-                result = [0]
-
-                def enum_children(parent_hwnd):
-                    children = []
-                    try:
-                        win32gui.EnumChildWindows(
-                            parent_hwnd,
-                            lambda h, _: children.append(h) or True,
-                            None
-                        )
-                    except Exception:
-                        pass
-                    for h in children:
-                        if result[0]:
-                            break
-                        try:
-                            if (win32gui.IsWindowVisible(h)
-                                    and win32gui.GetClassName(h) == "Button"
-                                    and win32gui.GetWindowText(h) == "Rubrica:"):
-                                result[0] = h
-                                return
-                        except Exception:
-                            pass
-
-                def cb(hwnd, _):
-                    if result[0]:
+                try:
+                    relatorio_window = self.main_window.child_window(
+                        title="Gerenciador de Relatórios",
+                        class_name="FNWND3190"
+                    )
+                    if relatorio_window.exists():
+                        break
+                    if not self.handle_error_dialogs():
+                        self.cleanup_windows()
                         return False
-                    if win32gui.IsWindowVisible(hwnd):
-                        enum_children(hwnd)
-                    return True
+                    if not self.smart_sleep(1):
+                        return False
+                except Exception:
+                    if attempt == 14:
+                        self.log("❌ Gerenciador de Relatórios não encontrado (timeout)")
+                        return False
 
-                win32gui.EnumWindows(cb, None)
-                return result[0]
+            if not relatorio_window:
+                self.log("❌ Gerenciador de Relatórios não encontrado")
+                return False
 
-            cb_hwnd = None
-            for _ in range(20):
+            self.log("📋 Gerenciador de Relatórios localizado")
+            relatorio_window.set_focus()
+            if not self.smart_sleep(0.5):
+                return False
+
+            # Navegar até a pasta Diversos: pressionar 'd' 6 vezes, depois ENTER
+            self.log("📁 Navegando para pasta Diversos (d x6 + Enter)")
+            for _ in range(6):
                 if self.should_stop():
                     return False
-                self.check_pause()
-                cb_hwnd = _find_rubrica_checkbox_hwnd()
-                if cb_hwnd:
-                    break
-                if not self.smart_sleep(0.5):
-                    return False
-
-            if not cb_hwnd:
-                self.log("❌ Janela de seleção de Rubrica não encontrada")
-                return False
-
-            # Operar na janela de seleção via win32gui direto (pid diferente do processo principal)
-            sel_hwnd = win32gui.GetParent(cb_hwnd)
-
-            # Verificar/marcar checkbox Rubrica via BM_GETCHECK / BM_SETCHECK + clique
-            import win32api
-            BM_GETCHECK = 0x00F0
-            checked = win32api.SendMessage(cb_hwnd, BM_GETCHECK, 0, 0)
-            if not checked:
-                self.log("☑️ Marcando checkbox Rubrica")
-                win32gui.SetForegroundWindow(sel_hwnd)
+                send_keys('d')
                 time.sleep(0.2)
-                win32api.SendMessage(cb_hwnd, 0x00F5, 0, 0)  # BM_CLICK
-                if not self.smart_sleep(0.3):
+            send_keys('{ENTER}')
+            if not self.smart_sleep(0.5):
+                return False
+
+            # Pressionar 'c' 9 vezes para selecionar a guia Taxa Motorista
+            self.log("🎯 Selecionando guia Taxa Motorista (c x10)")
+            for _ in range(10):
+                if self.should_stop():
                     return False
-            else:
-                self.log("✅ Checkbox Rubrica já está marcado")
+                send_keys('c')
+                time.sleep(0.2)
 
-            # Preencher campo Edit (auto_id="1001") via WM_SETTEXT
-            self.log(f"✏️ Preenchendo rubrica: {rubrica}")
-            edit_hwnd = win32gui.FindWindowEx(sel_hwnd, 0, "Edit", None)
-            if not edit_hwnd:
-                self.log("❌ Campo de edição da rubrica não encontrado")
-                return False
-            win32gui.SetForegroundWindow(sel_hwnd)
-            time.sleep(0.1)
-            win32gui.SendMessage(edit_hwnd, win32con.WM_SETTEXT, 0, rubrica)
-            if not self.smart_sleep(0.3):
-                return False
-
-            # OK da janela de seleção — foca e envia Alt+O
-            self.log("✅ Clicando em OK (seleção de rubrica)")
-            win32gui.SetForegroundWindow(sel_hwnd)
-            if not self.smart_sleep(0.3):
-                return False
-            send_keys('%o')
             if not self.smart_sleep(0.5):
                 return False
 
-            # OK da janela do relatório — foca e envia Alt+O
-            self.log("✅ Clicando em OK (confirmar relatório)")
-            win32gui.SetForegroundWindow(rel_hwnd)
+            # Preencher campos: TAB (pula 1º) → TAB + competência → TAB + rubrica
+            send_keys('{TAB}')
+            time.sleep(0.2)
+
+            self.log(f"📝 Preenchendo competência: {competencia}")
+            send_keys('{TAB}')
+            time.sleep(0.2)
+            send_keys(competencia, with_spaces=True)
             if not self.smart_sleep(0.3):
                 return False
-            send_keys('%o')
-            if not self.smart_sleep(0.5):
+
+            self.log(f"📝 Preenchendo rubrica: {rubrica}")
+            send_keys('{TAB}')
+            time.sleep(0.2)
+            send_keys(rubrica, with_spaces=True)
+            if not self.smart_sleep(0.3):
                 return False
 
-            # Aguardar janela de salvamento
+            if self.should_stop():
+                return False
+            self.check_pause()
+
+            # Executar relatório
+            self.log("⚡ Executando relatório")
+            try:
+                button_executar = relatorio_window.child_window(auto_id="1007", class_name="Button")
+                button_executar.click_input()
+                if not self.smart_sleep(4):
+                    return False
+            except Exception as e:
+                self.log(f"⚠️ Botão executar não encontrado, tentando F5: {e}")
+                send_keys('{F5}')
+                if not self.smart_sleep(4):
+                    return False
+
+            # Aguardar janela de salvamento com reenvio periódico de Ctrl+D
             self.log("📄 Aguardando janela de salvamento...")
             timeout_total = 180
             intervalo_ctrl_d = 5
@@ -1578,9 +1329,7 @@ class DominioAutomation:
                 self.cleanup_windows()
                 return False
 
-            sufixo_competencia = f"_{competencia}" if competencia else ""
-            nome_arquivo = f"taxa_bares_{codigo}_{rubrica}{sufixo_competencia}.pdf"
-            return self.salvar_pdf(nome_arquivo, diretorio)
+            return self.salvar_pdf(caminho)
 
         except Exception as e:
             self.log(f"❌ Erro ao processar linha {linha_excel}: {e}\n{traceback.format_exc()}")
