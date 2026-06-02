@@ -94,6 +94,7 @@ class AutomacaoGUI:
         self.set_window_icon()
 
         self.arquivo_excel = ctk.StringVar()
+        self.pasta_saida = ctk.StringVar()
         self.linha_inicial = ctk.StringVar(value="2")
         self.competencia_var = ctk.StringVar(value=datetime.now().strftime("%m/%Y"))
         self.status_var = ctk.StringVar(value="Aguardando início...")
@@ -258,9 +259,10 @@ class AutomacaoGUI:
         )
         self.btn_parar.grid(row=0, column=7, padx=(3, 0))
 
-        # --- Linha 2: Competência ---
+        # --- Linha 2: Competência + Pasta de saída ---
         row2 = ctk.CTkFrame(config_frame, fg_color="transparent")
         row2.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
+        row2.grid_columnconfigure(4, weight=1)
 
         ctk.CTkLabel(row2, text="📅", font=ctk.CTkFont(size=14)).grid(row=0, column=0, padx=(0, 5))
         ctk.CTkLabel(row2, text="Competência:", font=ctk.CTkFont(size=11), text_color="#BDC3C7").grid(
@@ -270,7 +272,19 @@ class AutomacaoGUI:
             row2, textvariable=self.competencia_var,
             width=120, height=32, font=ctk.CTkFont(size=11), justify="center",
             placeholder_text="MM/AAAA",
-        ).grid(row=0, column=2)
+        ).grid(row=0, column=2, padx=(0, 20))
+
+        ctk.CTkLabel(row2, text="📂", font=ctk.CTkFont(size=14)).grid(row=0, column=3, padx=(0, 5))
+        ctk.CTkEntry(
+            row2, textvariable=self.pasta_saida,
+            height=32, font=ctk.CTkFont(size=11),
+            placeholder_text="Pasta de saída dos PDFs...",
+        ).grid(row=0, column=4, sticky="ew", padx=(0, 8))
+        ctk.CTkButton(
+            row2, text="Pasta", command=self.selecionar_pasta_saida,
+            width=70, height=32, font=ctk.CTkFont(size=11),
+            fg_color=self.CORES['info'], hover_color="#2980B9",
+        ).grid(row=0, column=5)
 
     def criar_painel_estatisticas(self, parent):
         stats_frame = ctk.CTkFrame(parent, fg_color=self.CORES['fundo_card'], corner_radius=8)
@@ -388,28 +402,49 @@ class AutomacaoGUI:
             self.adicionar_log(f"Arquivo selecionado: {os.path.basename(filename)}", logging.INFO, "info")
             self.carregar_preview()
 
+    def selecionar_pasta_saida(self):
+        import subprocess
+        try:
+            script = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                "$f.Description = 'Selecione a pasta de saida dos PDFs'; "
+                "$f.ShowNewFolderButton = $true; "
+                "if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath } else { '' }"
+            )
+            result = subprocess.run(
+                ["powershell", "-Command", script],
+                capture_output=True, text=True, timeout=120
+            )
+            pasta = result.stdout.strip()
+            if pasta:
+                self.pasta_saida.set(pasta)
+                self.adicionar_log(f"Pasta de saída: {pasta}", logging.INFO, "info")
+        except Exception as e:
+            self.adicionar_log(f"Erro ao selecionar pasta: {e}", logging.ERROR, "erro")
+
     def carregar_preview(self):
         if not self.arquivo_excel.get():
             return
         try:
             df = pd.read_excel(self.arquivo_excel.get(), header=None,
-                               names=['Codigo', 'Nome', 'Rubrica', 'Caminho'])
+                               names=['Codigo', 'Nome', 'Rubrica'])
             # Pular linha de cabeçalho se existir
             if str(df.iloc[0]['Codigo']).lower() in ('codigo', 'código', 'code'):
                 df = df.iloc[1:].reset_index(drop=True)
             total = len(df)
 
             self.preview_info_label.configure(
-                text=f"📄 {os.path.basename(self.arquivo_excel.get())} | {total} linhas | Colunas: Codigo, Nome, Rubrica, Caminho"
+                text=f"📄 {os.path.basename(self.arquivo_excel.get())} | {total} linhas | Colunas: Codigo, Nome, Rubrica"
             )
 
             self.preview_text.delete("1.0", "end")
-            cols = ['Codigo', 'Nome', 'Rubrica', 'Caminho']
-            header = " | ".join([f"{c:^18}" for c in cols])
+            cols = ['Codigo', 'Nome', 'Rubrica']
+            header = " | ".join([f"{c:^22}" for c in cols])
             sep = "─" * len(header)
             self.preview_text.insert("end", f"{sep}\n{header}\n{sep}\n")
             for _, row in df.head(50).iterrows():
-                self.preview_text.insert("end", " | ".join([f"{str(row[c])[:18]:^18}" for c in cols]) + "\n")
+                self.preview_text.insert("end", " | ".join([f"{str(row[c])[:22]:^22}" for c in cols]) + "\n")
             if total > 50:
                 self.preview_text.insert("end", f"\n... e mais {total - 50} linhas\n")
 
@@ -491,13 +526,17 @@ class AutomacaoGUI:
             return False, "Linha inicial deve ser um número válido."
         try:
             df = pd.read_excel(self.arquivo_excel.get(), header=None,
-                               names=['Codigo', 'Nome', 'Rubrica', 'Caminho'])
+                               names=['Codigo', 'Nome', 'Rubrica'])
             if len(df) == 0:
                 return False, "Arquivo Excel está vazio."
         except Exception as e:
             return False, f"Erro ao ler arquivo Excel: {e}"
         if not self.competencia_var.get().strip():
             return False, "Informe a competência antes de continuar."
+        if not self.pasta_saida.get().strip():
+            return False, "Selecione a pasta de saída dos PDFs."
+        if not os.path.isdir(self.pasta_saida.get().strip()):
+            return False, "Pasta de saída não encontrada. Verifique o caminho."
         return True, "OK"
 
     def iniciar_automacao_thread(self):
@@ -569,7 +608,7 @@ class AutomacaoGUI:
             self.executando = True
 
             df = pd.read_excel(self.arquivo_excel.get(), header=None,
-                               names=['Codigo', 'Nome', 'Rubrica', 'Caminho'])
+                               names=['Codigo', 'Nome', 'Rubrica'])
 
             # Pular linha de cabeçalho se existir
             if str(df.iloc[0]['Codigo']).lower() in ('codigo', 'código', 'code'):
@@ -578,6 +617,7 @@ class AutomacaoGUI:
             inicio_idx = linha_inicial - 2
             df_processar = df.iloc[inicio_idx:]
             total = len(df_processar)
+            pasta_saida = self.pasta_saida.get().strip()
 
             self.adicionar_log(f"Arquivo carregado: {total} linhas para processar", logging.INFO, "info")
 
@@ -602,13 +642,12 @@ class AutomacaoGUI:
                 codigo = str(row['Codigo']).strip()
                 nome = str(row.get('Nome', 'N/A')).strip()
                 rubrica = str(row['Rubrica']).strip()
-                caminho_raw = str(row['Caminho']).strip()
-                # Sanitiza apenas o nome do arquivo (preserva o caminho de pasta)
-                pasta = os.path.dirname(caminho_raw)
-                nome_arq = os.path.basename(caminho_raw)
-                for ch in r'*?"<>|/':
+                # Monta o nome do arquivo e sanitiza caracteres inválidos
+                comp_fmt = competencia.replace('/', '-')
+                nome_arq = f"{codigo} - {nome} - {comp_fmt}.pdf"
+                for ch in r'*?"<>|':
                     nome_arq = nome_arq.replace(ch, '-')
-                caminho = os.path.join(pasta, nome_arq) if pasta else nome_arq
+                caminho = os.path.join(pasta_saida, nome_arq)
 
                 self.empresa_label.configure(text=codigo[:20])
                 self.status_var.set(f"Processando: {idx + 1}/{total}")
