@@ -52,8 +52,8 @@ def parsear_pdf(nome_arquivo: str) -> Optional[dict]:
     Retorna dict com 'codigo', 'nome', 'periodo' ou None se não bater.
     """
     base = os.path.splitext(nome_arquivo)[0]
-    # Padrão: número - qualquer coisa - MM.YYYY (ou MM/YYYY)
-    m = re.match(r'^(\d+)\s*-\s*(.+?)\s*-\s*(\d{2}[./]\d{4})$', base.strip())
+    # Padrão: número - qualquer coisa - MM.YYYY / MM-YYYY / MM/YYYY
+    m = re.match(r'^(\d+)\s*-\s*(.+?)\s*-\s*(\d{2}[.\-/]\d{4})$', base.strip())
     if not m:
         return None
     return {
