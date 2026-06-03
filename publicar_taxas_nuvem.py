@@ -366,15 +366,31 @@ class PublicarTaxasGUI:
     # ── Ações da GUI ──────────────────────────────────────────────────────────
 
     def _selecionar_pasta(self):
-        # Esconde a janela CTk durante o diálogo para evitar conflito de event loop
-        self.window.withdraw()
-        try:
-            pasta = filedialog.askdirectory(title="Selecionar pasta com PDFs das taxas")
-        finally:
-            self.window.deiconify()
+        pasta = self._askdirectory_powershell()
         if pasta:
             self.pasta_var.set(pasta)
             threading.Thread(target=self._carregar_preview, args=(pasta,), daemon=True).start()
+
+    @staticmethod
+    def _askdirectory_powershell() -> str:
+        """Abre diálogo de pasta via PowerShell — evita travamento com CustomTkinter."""
+        import subprocess
+        script = (
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
+            "$d.Description = 'Selecionar pasta com PDFs das taxas';"
+            "$d.ShowNewFolderButton = $false;"
+            "if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }"
+        )
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                capture_output=True, text=True, timeout=120,
+            )
+            pasta = result.stdout.strip()
+            return pasta if pasta and os.path.isdir(pasta) else ""
+        except Exception:
+            return ""
 
     def _on_tipo_changed(self, valor):
         cor = self.CORES['destaque'] if valor == "Panificação" else self.CORES['processando']
