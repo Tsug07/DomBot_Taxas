@@ -366,10 +366,13 @@ class PublicarTaxasGUI:
     # ── Ações da GUI ──────────────────────────────────────────────────────────
 
     def _selecionar_pasta(self):
-        pasta = filedialog.askdirectory(title="Selecionar pasta com PDFs das taxas")
+        pasta = filedialog.askdirectory(
+            parent=self.window,
+            title="Selecionar pasta com PDFs das taxas",
+        )
         if pasta:
             self.pasta_var.set(pasta)
-            self._carregar_preview(pasta)
+            threading.Thread(target=self._carregar_preview, args=(pasta,), daemon=True).start()
 
     def _on_tipo_changed(self, valor):
         cor = self.CORES['destaque'] if valor == "Panificação" else self.CORES['processando']
@@ -380,34 +383,40 @@ class PublicarTaxasGUI:
         if not pasta or not os.path.isdir(pasta):
             messagebox.showwarning("Aviso", "Selecione uma pasta válida primeiro.")
             return
-        self._carregar_preview(pasta)
+        threading.Thread(target=self._carregar_preview, args=(pasta,), daemon=True).start()
 
     def _carregar_preview(self, pasta: str):
+        # Roda em thread — toda atualização de widget via window.after()
         pdfs = listar_pdfs_da_pasta(pasta)
         self._pdfs_carregados = pdfs
 
-        self.txt_preview.configure(state="normal")
-        self.txt_preview.delete("1.0", "end")
+        def _atualizar_ui():
+            self.txt_preview.configure(state="normal")
+            self.txt_preview.delete("1.0", "end")
 
-        if not pdfs:
-            self.txt_preview.insert("end",
-                "Nenhum PDF encontrado com o padrão esperado:\n"
-                "  {codigo} - {nome empresa} - {MM.YYYY}.pdf\n\n"
-                f"Pasta: {pasta}\n"
-            )
-            self.adicionar_log(f"⚠️ Nenhum PDF válido encontrado em: {pasta}", logging.WARNING)
-        else:
-            header = f"{'Nº GMS':<10} {'Período':<10} {'Arquivo'}\n"
-            sep = "─" * 80 + "\n"
-            self.txt_preview.insert("end", f"Pasta: {pasta}\n{sep}{header}{sep}")
-            for p in pdfs:
-                linha = f"{p['codigo']:<10} {p['periodo']:<10} {p['arquivo']}\n"
-                self.txt_preview.insert("end", linha)
-            self.txt_preview.insert("end", f"{sep}Total: {len(pdfs)} PDF(s) encontrado(s)\n")
-            self.adicionar_log(f"📂 {len(pdfs)} PDF(s) encontrado(s) em: {os.path.basename(pasta)}", logging.INFO)
-            self.tabview.set("📄 PDFs encontrados")
+            if not pdfs:
+                self.txt_preview.insert("end",
+                    "Nenhum PDF encontrado com o padrão esperado:\n"
+                    "  {codigo} - {nome empresa} - {MM.YYYY}.pdf\n\n"
+                    f"Pasta: {pasta}\n"
+                )
+                self.adicionar_log(f"⚠️ Nenhum PDF válido encontrado em: {pasta}", logging.WARNING)
+            else:
+                header = f"{'Nº GMS':<10} {'Período':<10} {'Arquivo'}\n"
+                sep = "─" * 80 + "\n"
+                self.txt_preview.insert("end", f"Pasta: {pasta}\n{sep}{header}{sep}")
+                for p in pdfs:
+                    linha = f"{p['codigo']:<10} {p['periodo']:<10} {p['arquivo']}\n"
+                    self.txt_preview.insert("end", linha)
+                self.txt_preview.insert("end", f"{sep}Total: {len(pdfs)} PDF(s) encontrado(s)\n")
+                self.adicionar_log(
+                    f"📂 {len(pdfs)} PDF(s) encontrado(s) em: {os.path.basename(pasta)}", logging.INFO
+                )
+                self.tabview.set("📄 PDFs encontrados")
 
-        self.txt_preview.configure(state="disabled")
+            self.txt_preview.configure(state="disabled")
+
+        self.window.after(0, _atualizar_ui)
 
     def _iniciar(self):
         pasta = self.pasta_var.get()
