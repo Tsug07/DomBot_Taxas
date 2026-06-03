@@ -366,10 +366,12 @@ class PublicarTaxasGUI:
     # ── Ações da GUI ──────────────────────────────────────────────────────────
 
     def _selecionar_pasta(self):
-        pasta = filedialog.askdirectory(
-            parent=self.window,
-            title="Selecionar pasta com PDFs das taxas",
-        )
+        # Esconde a janela CTk durante o diálogo para evitar conflito de event loop
+        self.window.withdraw()
+        try:
+            pasta = filedialog.askdirectory(title="Selecionar pasta com PDFs das taxas")
+        finally:
+            self.window.deiconify()
         if pasta:
             self.pasta_var.set(pasta)
             threading.Thread(target=self._carregar_preview, args=(pasta,), daemon=True).start()
