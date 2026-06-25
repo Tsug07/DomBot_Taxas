@@ -1423,22 +1423,43 @@ class DominioAutomation:
                 self.log("❌ Janela do relatório não encontrada")
                 return False
 
-            # Focar a janela e usar o atalho Alt+U do botão Rubricas
+            # Janela abre com campo "De" já focado — digita competência, TAB para "Até",
+            # depois abre Rubricas, preenche e confirma com OK
             win32gui.SetForegroundWindow(rel_hwnd)
             if not self.smart_sleep(0.3):
                 return False
+
+            comp_fmt = competencia.replace("-", "/") if competencia else ""
+
+            if comp_fmt:
+                self.log(f"📅 Preenchendo competência De: {comp_fmt}")
+                send_keys('^a')
+                time.sleep(0.05)
+                send_keys(comp_fmt, with_spaces=True)
+                if not self.smart_sleep(0.2):
+                    return False
+
+                self.log(f"📅 Preenchendo competência Até: {comp_fmt}")
+                send_keys('{TAB}')
+                time.sleep(0.1)
+                send_keys('^a')
+                time.sleep(0.05)
+                send_keys(comp_fmt, with_spaces=True)
+                if not self.smart_sleep(0.2):
+                    return False
+
+            # Abrir seleção de Rubricas via Alt+U
             self.log("🔘 Clicando no botão Rubricas (Alt+U)")
+            win32gui.SetForegroundWindow(rel_hwnd)
             send_keys('%u')
             if not self.smart_sleep(1):
                 return False
 
-            # Aguardar a janela de seleção de Rubrica — busca o checkbox "Rubrica:" em todos os níveis
+            # Aguardar janela de seleção de Rubrica
             self.log("☑️ Verificando checkbox Rubrica...")
 
             def _find_rubrica_checkbox_hwnd():
-                """Varre todas as janelas e seus filhos procurando Button com texto 'Rubrica:'."""
                 result = [0]
-
                 def enum_children(parent_hwnd):
                     children = []
                     try:
@@ -1460,14 +1481,12 @@ class DominioAutomation:
                                 return
                         except Exception:
                             pass
-
                 def cb(hwnd, _):
                     if result[0]:
                         return False
                     if win32gui.IsWindowVisible(hwnd):
                         enum_children(hwnd)
                     return True
-
                 win32gui.EnumWindows(cb, None)
                 return result[0]
 
@@ -1486,11 +1505,9 @@ class DominioAutomation:
                 self.log("❌ Janela de seleção de Rubrica não encontrada")
                 return False
 
-            # Operar na janela de seleção via win32gui direto (pid diferente do processo principal)
             sel_hwnd = win32gui.GetParent(cb_hwnd)
 
-            # Verificar/marcar checkbox Rubrica via BM_GETCHECK / BM_SETCHECK + clique
-            import win32api
+            # Marcar checkbox Rubrica se necessário
             BM_GETCHECK = 0x00F0
             checked = win32api.SendMessage(cb_hwnd, BM_GETCHECK, 0, 0)
             if not checked:
@@ -1503,7 +1520,7 @@ class DominioAutomation:
             else:
                 self.log("✅ Checkbox Rubrica já está marcado")
 
-            # Preencher campo Edit (auto_id="1001") via WM_SETTEXT
+            # Preencher campo de rubrica via WM_SETTEXT
             self.log(f"✏️ Preenchendo rubrica: {rubrica}")
             edit_hwnd = win32gui.FindWindowEx(sel_hwnd, 0, "Edit", None)
             if not edit_hwnd:
@@ -1515,19 +1532,19 @@ class DominioAutomation:
             if not self.smart_sleep(0.3):
                 return False
 
-            # OK da janela de seleção — foca e envia Alt+O
+            # OK da janela de seleção de rubrica
             self.log("✅ Clicando em OK (seleção de rubrica)")
             win32gui.SetForegroundWindow(sel_hwnd)
-            if not self.smart_sleep(0.3):
+            if not self.smart_sleep(0.2):
                 return False
             send_keys('%o')
             if not self.smart_sleep(0.5):
                 return False
 
-            # OK da janela do relatório — foca e envia Alt+O
+            # OK da janela principal do relatório
             self.log("✅ Clicando em OK (confirmar relatório)")
             win32gui.SetForegroundWindow(rel_hwnd)
-            if not self.smart_sleep(0.3):
+            if not self.smart_sleep(0.2):
                 return False
             send_keys('%o')
             if not self.smart_sleep(0.5):
