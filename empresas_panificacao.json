@@ -1,0 +1,26 @@
+[
+  {
+    "codigo": "1017",
+    "nome": "FERREIRA MARTINS PADARIA E CONFEITARIA LTDA",
+    "rubrica": "259",
+    "ativo": false
+  },
+  {
+    "codigo": "144",
+    "nome": "PADARIA E MERCEARIA VERDE VALE LTDA - ME",
+    "rubrica": "336",
+    "ativo": true
+  },
+  {
+    "codigo": "667",
+    "nome": "MARIA MOTA BOLOS LTDA",
+    "rubrica": "205",
+    "ativo": true
+  },
+  {
+    "codigo": "587",
+    "nome": "C E S PADARIA PAO E VINHO LTDA",
+    "rubrica": "212",
+    "ativo": true
+  }
+]
