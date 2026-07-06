@@ -1192,10 +1192,7 @@ class DominioAutomation:
     def cleanup_windows(self):
         try:
             self.log("🧹 Limpando janelas")
-            self.main_window.set_focus()
-            for _ in range(4):
-                send_keys('{ESC}')
-                time.sleep(0.5)
+            self._fechar_janelas_abertas()
         except Exception as e:
             self.log(f"⚠️ Erro durante limpeza: {e}")
 
@@ -1252,9 +1249,42 @@ class DominioAutomation:
             self.log(f"❌ Erro ao salvar PDF: {e}")
             return False
 
+    def _fechar_janelas_abertas(self):
+        """Fecha janelas FNWND3190 abertas via WM_CLOSE e ESC."""
+        janelas = []
+        main_hwnd = self.main_window.handle if self.main_window else None
+        def _cb(hwnd, _):
+            try:
+                if (win32gui.IsWindowVisible(hwnd)
+                        and win32gui.GetClassName(hwnd) == "FNWND3190"
+                        and hwnd != main_hwnd):
+                    janelas.append(hwnd)
+            except Exception:
+                pass
+            return True
+        win32gui.EnumWindows(_cb, None)
+        for hwnd in janelas:
+            try:
+                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+                time.sleep(0.3)
+            except Exception:
+                pass
+        try:
+            self.main_window.set_focus()
+            for _ in range(5):
+                send_keys('{ESC}')
+                time.sleep(0.3)
+        except Exception:
+            pass
+
     def handle_empresa_change(self, empresa_num: str) -> bool:
         try:
             if self.should_stop():
+                return False
+
+            # Garante que não há janelas abertas antes de F8
+            self._fechar_janelas_abertas()
+            if not self.smart_sleep(0.5):
                 return False
 
             self.log("📞 Solicitando troca de empresa (F8)")
@@ -1276,6 +1306,34 @@ class DominioAutomation:
                     )
                     if troca_window.exists():
                         break
+                    # Se aparecer aviso de "fechar janelas", fecha e tenta F8 de novo
+                    found_hwnd = None
+                    def _find_atencao(hwnd, _):
+                        nonlocal found_hwnd
+                        try:
+                            if (win32gui.IsWindowVisible(hwnd)
+                                    and win32gui.GetClassName(hwnd) == "#32770"
+                                    and "aten" in win32gui.GetWindowText(hwnd).lower()):
+                                found_hwnd = hwnd
+                                return False
+                        except Exception:
+                            pass
+                        return True
+                    win32gui.EnumWindows(_find_atencao, None)
+                    if found_hwnd:
+                        self.log("⚠️ Aviso 'fechar janelas' detectado — confirmando e fechando janelas")
+                        win32gui.SetForegroundWindow(found_hwnd)
+                        time.sleep(0.2)
+                        send_keys('{ENTER}')
+                        time.sleep(0.5)
+                        self._fechar_janelas_abertas()
+                        if not self.smart_sleep(0.5):
+                            return False
+                        self.main_window.set_focus()
+                        send_keys('{F8}')
+                        if not self.smart_sleep(2):
+                            return False
+                        continue
                     if not self.handle_error_dialogs():
                         self.cleanup_windows()
                         return False
@@ -1423,22 +1481,43 @@ class DominioAutomation:
                 self.log("❌ Janela do relatório não encontrada")
                 return False
 
-            # Focar a janela e usar o atalho Alt+U do botão Rubricas
+            # Janela abre com campo "De" já focado — digita competência, TAB para "Até",
+            # depois abre Rubricas, preenche e confirma com OK
             win32gui.SetForegroundWindow(rel_hwnd)
             if not self.smart_sleep(0.3):
                 return False
+
+            comp_fmt = competencia.replace("-", "/") if competencia else ""
+
+            if comp_fmt:
+                self.log(f"📅 Preenchendo competência De: {comp_fmt}")
+                send_keys('^a')
+                time.sleep(0.05)
+                send_keys(comp_fmt, with_spaces=True)
+                if not self.smart_sleep(0.2):
+                    return False
+
+                self.log(f"📅 Preenchendo competência Até: {comp_fmt}")
+                send_keys('{TAB}')
+                time.sleep(0.1)
+                send_keys('^a')
+                time.sleep(0.05)
+                send_keys(comp_fmt, with_spaces=True)
+                if not self.smart_sleep(0.2):
+                    return False
+
+            # Abrir seleção de Rubricas via Alt+U
             self.log("🔘 Clicando no botão Rubricas (Alt+U)")
+            win32gui.SetForegroundWindow(rel_hwnd)
             send_keys('%u')
             if not self.smart_sleep(1):
                 return False
 
-            # Aguardar a janela de seleção de Rubrica — busca o checkbox "Rubrica:" em todos os níveis
+            # Aguardar janela de seleção de Rubrica
             self.log("☑️ Verificando checkbox Rubrica...")
 
             def _find_rubrica_checkbox_hwnd():
-                """Varre todas as janelas e seus filhos procurando Button com texto 'Rubrica:'."""
                 result = [0]
-
                 def enum_children(parent_hwnd):
                     children = []
                     try:
@@ -1460,14 +1539,12 @@ class DominioAutomation:
                                 return
                         except Exception:
                             pass
-
                 def cb(hwnd, _):
                     if result[0]:
                         return False
                     if win32gui.IsWindowVisible(hwnd):
                         enum_children(hwnd)
                     return True
-
                 win32gui.EnumWindows(cb, None)
                 return result[0]
 
@@ -1486,11 +1563,9 @@ class DominioAutomation:
                 self.log("❌ Janela de seleção de Rubrica não encontrada")
                 return False
 
-            # Operar na janela de seleção via win32gui direto (pid diferente do processo principal)
             sel_hwnd = win32gui.GetParent(cb_hwnd)
 
-            # Verificar/marcar checkbox Rubrica via BM_GETCHECK / BM_SETCHECK + clique
-            import win32api
+            # Marcar checkbox Rubrica se necessário
             BM_GETCHECK = 0x00F0
             checked = win32api.SendMessage(cb_hwnd, BM_GETCHECK, 0, 0)
             if not checked:
@@ -1503,7 +1578,7 @@ class DominioAutomation:
             else:
                 self.log("✅ Checkbox Rubrica já está marcado")
 
-            # Preencher campo Edit (auto_id="1001") via WM_SETTEXT
+            # Preencher campo de rubrica via WM_SETTEXT
             self.log(f"✏️ Preenchendo rubrica: {rubrica}")
             edit_hwnd = win32gui.FindWindowEx(sel_hwnd, 0, "Edit", None)
             if not edit_hwnd:
@@ -1515,23 +1590,26 @@ class DominioAutomation:
             if not self.smart_sleep(0.3):
                 return False
 
-            # OK da janela de seleção — foca e envia Alt+O
+            # OK da janela de seleção de rubrica
             self.log("✅ Clicando em OK (seleção de rubrica)")
             win32gui.SetForegroundWindow(sel_hwnd)
-            if not self.smart_sleep(0.3):
+            if not self.smart_sleep(0.2):
                 return False
             send_keys('%o')
             if not self.smart_sleep(0.5):
                 return False
 
-            # OK da janela do relatório — foca e envia Alt+O
+            # OK da janela principal do relatório
             self.log("✅ Clicando em OK (confirmar relatório)")
-            win32gui.SetForegroundWindow(rel_hwnd)
-            if not self.smart_sleep(0.3):
-                return False
-            send_keys('%o')
-            if not self.smart_sleep(0.5):
-                return False
+            if win32gui.IsWindow(rel_hwnd) and win32gui.IsWindowVisible(rel_hwnd):
+                win32gui.SetForegroundWindow(rel_hwnd)
+                if not self.smart_sleep(0.2):
+                    return False
+                send_keys('%o')
+                if not self.smart_sleep(0.5):
+                    return False
+            else:
+                self.log("⚠️ Janela do relatório não mais visível após rubrica")
 
             # Aguardar janela de salvamento
             self.log("📄 Aguardando janela de salvamento...")

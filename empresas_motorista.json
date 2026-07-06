@@ -1,0 +1,50 @@
+[
+  {
+    "codigo": "39",
+    "nome": "GIOVANI PEREIRA DOS SANTOS - ME",
+    "rubrica": "336",
+    "ativo": false
+  },
+  {
+    "codigo": "517",
+    "nome": "LOCARJET LOCACOES LTDA",
+    "rubrica": "336",
+    "ativo": false
+  },
+  {
+    "codigo": "12",
+    "nome": "REVIDREX COMERCIO E RECICLAGEM LTDA - EPP",
+    "rubrica": "227",
+    "ativo": false
+  },
+  {
+    "codigo": "450",
+    "nome": "ALOISIO DIAS TRANSPORTES",
+    "rubrica": "227",
+    "ativo": false
+  },
+  {
+    "codigo": "859",
+    "nome": "VAZMELLO MERCADO LTDA",
+    "rubrica": "259",
+    "ativo": false
+  },
+  {
+    "codigo": "872",
+    "nome": "TAMIRAO MATERIAIS DE CONSTRUCAO LTDA",
+    "rubrica": "201",
+    "ativo": false
+  },
+  {
+    "codigo": "806",
+    "nome": "MULTI CHOPP LTDA",
+    "rubrica": "259",
+    "ativo": false
+  },
+  {
+    "codigo": "195",
+    "nome": "BATERACO DISTRIBUIDORA DE BATERIAS E PECAS PARA AUTOS LTDA",
+    "rubrica": "227",
+    "ativo": true
+  }
+]
